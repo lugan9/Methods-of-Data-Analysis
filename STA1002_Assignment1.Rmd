@@ -1,0 +1,304 @@
+---
+title: "STA1002 Assignment1"
+author: "Lu Gan 1003119608"
+output: pdf_document
+---
+
+## 1. Snow-gauge dataset
+
+### a. View data and plot variables
+
+```{r setup,include=FALSE,warning = FALSE,message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load packages
+library(tidyverse)
+library(dplyr)
+
+# Load data
+snow_data <- readr::read_table("https://www.stat.berkeley.edu/~statlabs/data/gauge.data",col_types = "dd")
+
+# Read as dataframe
+snow_gauge_tbl <- dplyr::as_data_frame(snow_data)
+```
+
+```{r view-data,echo=FALSE}
+# View data
+glimpse(snow_gauge_tbl)
+```
+
+From above, we can observe the dataset includes two variables gain and density. Our goal is to estimate mean density based on a given gain. So gain is our predictor while density is the response variable. Next, we can summarize their statistics.  
+
+```{r summary,echo=FALSE}
+# Summary of variables
+summary(snow_gauge_tbl$density)
+```
+
+From the summary result, there are three empty rows without both of the two variables. Since the number of NA values is small, we can delete these empty rows which have no significance to our analysis.
+
+```{r delete-na and check observations,echo=FALSE}
+# Delete the NA values
+snow_gauge <- na.omit(snow_gauge_tbl)
+# Check the count of observations in each level of density
+snow_gauge %>% 
+  group_by(density) %>% 
+  summarize(count = n())
+```
+
+From the table above, we have 9 levels of density in this dataset. Each level has ten observations. We can make a scatter plot to show the relationship between gain and density. Relation of log(gain) and density after transformation is also as follows.
+
+```{r relation-plot,fig.height=2,fig.width=4,echo=FALSE}
+# Relation plot between gain and density
+relation_plot_1 <- snow_gauge%>%
+                      ggplot(aes(x = gain,y = density)) + 
+                      theme_classic() + 
+                      geom_point(pch = 21,colour = "black") +
+                      labs(title = "Relation_plot_1",subtitle = "Snow Gauge Dataset",
+                           x = "Gain",y = "Density (g/cm^3)")
+# Plot log(gain) vs density
+snow_gauge$log_gain <- log(snow_gauge$gain)
+relation_plot_2 <- snow_gauge%>%
+                      ggplot(aes(x = log_gain ,y = density)) + 
+                      theme_classic() + 
+                      geom_point(pch = 21,colour = "black") +
+                      labs(title = "Relation_plot_2",subtitle = "Snow Gauge Dataset",
+                           x = "log(gain)",y = "Density (g/cm^3)")
+cowplot::plot_grid(relation_plot_1,relation_plot_2)
+```
+
+From their relation curve, we can describe that the snow density will decrease as the gain value becomes larger. However, it seems not to match a linear relation.
+
+### b. Build models and make transformation
+
+We can firstly try to build a simple linear model for gain and density.
+```{r model-1,echo=FALSE}
+# Define a simple model
+lm1 <- lm(density ~ gain, data = snow_gauge)
+```
+
+
+```{r model-plot-1,fig.height=2,fig.width=4,,echo=FALSE}
+# Plot the simple linear model
+model_plot_1 <- snow_gauge%>%
+                  ggplot(aes(x = gain,y = density)) + theme_classic() + 
+                  geom_point(pch = 21,colour = "black") + geom_smooth(method = lm) + 
+                  labs(title = "Lm1 for gain and density",subtitle = "Snow Gauge Dataset",
+                       x = "Gain",y = "Density (g/cm^3)")
+# Residual plot of linear model
+residual_plot_1 <- snow_gauge %>% 
+                   ggplot(aes(x = density, y = residuals(lm1))) + theme_classic() + 
+                   geom_point(pch = 21,colour = "black") + geom_hline(aes(yintercept=0)) + 
+                   labs(title = "Residual of lm1",subtitle = "Snow Gauge Dataset", 
+                        x = "Density (g/cm^3)",y = "Residuals")
+cowplot::plot_grid(model_plot_1,residual_plot_1)
+```
+
+From the linear model figure, we can observe the fit result of simple linear model is not good. It has deviation with the relation trend. The residual points do not show a random scatter pattern which indicates the nonlinear relation. Next use log(gain) to build a second model.
+
+```{r model-2,echo=FALSE}
+# Define a new linear model for log_gain and density
+lm2 <- lm(density ~ log_gain, data = snow_gauge)
+summary(lm2)
+```
+
+```{r model-plot-2,fig.height=2,fig.width=4,echo=FALSE}
+# Plot the lm2 model
+model_plot_2 <- snow_gauge%>%
+                  ggplot(aes(x = log_gain,y = density)) + theme_classic() + 
+                  geom_point(pch = 21,colour = "black") + geom_smooth(method = lm) + 
+                  labs(title = "Lm2 for log(gain) and density", subtitle = "Snow Gauge Dataset", 
+                       x = "log(gain)", y = "Density (g/cm^3)")
+# Plot residual plot of lm2
+residual_plot_2 <- snow_gauge %>%
+                      ggplot(aes(x = density,y = residuals(lm2))) + theme_classic() + 
+                      geom_point(pch = 21,colour = "black") + geom_hline(aes(yintercept=0)) + 
+                      labs(title = "Residual of lm2", subtitle = "Snow Gauge Dataset",
+                           x = "Density (g/cm^3)", y = "Residuals")
+cowplot::plot_grid(model_plot_2,residual_plot_2)
+```
+
+The model line fits the data points well and the residual plot looks better. Thus after transformation, the lm2 model is more appropriate than lm1.
+
+### c. Limitations and assumptions
+
+Normality of residuals. The residual errors are assumed to be normally distributed. Use QQ plot to check this assumption.
+
+```{r QQ-plot-1,fig.height=2,fig.width=2,echo=FALSE}
+# Add predicted density and residual columns in snow_gauge
+snow_gauge$predicted <- predict(lm2)
+snow_gauge$residuals <- residuals(lm2)
+# Normality of residuals. Courtesy Alex Stringer
+snow_gauge %>%
+  mutate_at("residuals",funs( (. - mean(.)) / sd(.))) %>%
+  arrange(residuals) %>%
+  mutate(q = qnorm(1:n() / (n() + 1))) %>%
+  ggplot(aes(x = q,y = residuals)) + theme_classic() + 
+  geom_point() + geom_abline(slope = 1,intercept = 0,colour = "red") + 
+  labs(title = "Normal QQ-plot", x = "Theoretical Quantiles", y = "Sample Quantiles")
+```
+
+Homogeneity of variance. The assumption of homogeneity of variance means that the level of variance for a particular variable is constant across the sample. The assumption of homogeneity is important for ANOVA testing and in regression models. In ANOVA, when homogeneity of variance is violated, there is a greater probability of falsely rejecting the null hypothesis. In regression models, the assumption needs to be checked with regards to residuals.
+
+```{r Bartlett’s test,echo=FALSE}
+# Use Bartlett’s test to check this assumption. There are 9 levels grouped by density.
+bartlett.test(log_gain ~ density, snow_gauge)
+```
+
+The p-values is less than 0.05 suggesting variances are significantly different and the homogeneity of variance assumption has been violated. It indicates difference between levels. This may influence the anova result as well.
+
+### d. Compare models
+
+```{r fit null-model and compare,echo=FALSE}
+# Fit the null model
+lmnull <- lm(density ~ 1,data=snow_gauge)
+# Anova can be used to compare two models
+anova(lmnull, lm2)
+```
+
+Fit data to null model and compare two models with anova. The result indicates lm2 is better with less sum of squares and significant p value of F test.
+
+### e. Prediction
+
+With the model between log(gain) and density, we can use a gain reading to predict density with a confidence interval.
+
+```{r prediction-1,echo=FALSE}
+predict(lm2, data.frame(log_gain = log(38.6)), interval="confidence")
+predict(lm2, data.frame(log_gain = log(426.7)), interval="confidence")
+```
+
+## 2. Crabpop dataset
+
+### a. View data and plot variables
+
+```{r load-data,echo=FALSE}
+# Load data
+crab_data <- readr::read_table("https://www.stat.berkeley.edu/users/statlabs/data/crabpop.data",col_types = "dc")
+# Read as dataframe
+crab_tbl <- dplyr::as_data_frame(crab_data)
+```
+
+```{r view-data-1,echo=FALSE}
+# View data
+glimpse(crab_tbl) 
+summary(crab_tbl$size)
+```
+
+```{r view-data-2,fig.height=2,fig.width=2}
+# Pairwise bloxplot
+crab_boxplot <- crab_tbl %>%
+  ggplot(aes(x = shell,y = size)) +
+  theme_classic() +
+  geom_boxplot() +
+  labs(title = "Boxplot_size by shell",
+       x = "Molt classification",
+       y = "Carapace size")
+cowplot::plot_grid(crab_boxplot)
+```
+
+### b. Summary statistics
+
+```{r mean-and-sd,echo=FALSE}
+# Mean and standard deviation. Courtesy Alex Stringer.
+size_mean <- crab_tbl %>%
+  summarize(size_mean = mean(size),size_sd = sd(size))
+size_mean
+# Shell means and standard deviations
+shell_means <- crab_tbl %>%
+  group_by(shell) %>%
+  summarize(shell_mean = mean(size),
+            shell_median = median(size),
+            shell_sd = sd(size),
+            shell_size = n())
+shell_means
+
+# Sums of squares
+sums_of_squares <- crab_tbl %>%
+  left_join(shell_means,by="shell") %>%
+  summarize(total = sum( (size - size_mean$size_mean)^2 ),
+            error = sum( (size - shell_mean)^2  ),
+            model = total - error
+  ) %>%
+  gather(type,SS,total:model)
+sums_of_squares
+```
+
+```{r anova}
+size_anova <- aov(size ~ shell,data = crab_tbl)
+summary(size_anova)
+```
+
+
+### c. Assumptions
+
+```{r assumption-plot-1,fig.height=2,fig.width=4,echo=FALSE}
+# Normality assumption
+QQ_plot <- crab_tbl %>%
+              mutate_at("size",funs( (. - mean(.)) / sd(.))) %>%
+              arrange(size) %>%
+              mutate(q = qnorm(1:n() / (n() + 1))) %>%
+              ggplot(aes(x = q,y = size)) +
+              theme_classic() +
+              geom_point() +
+              geom_abline(slope = 1,intercept = 0) +
+              labs(title = "Normal QQ-plot",
+                   x = "Theoretical Quantiles",
+                   y = "Sample Quantiles")
+
+Histogram_1 <- crab_tbl %>%
+                  ggplot(aes(x = size)) +
+                  theme_classic() +
+                  geom_histogram(aes(y = ..density..),colour="black",fill="#E89A3D",bins = 15) +
+                  geom_density(colour = "#A200E4") +
+                  labs(title = "Histogram and density for observed sizes",
+                       x = "Sizes",
+                       y = "Density")
+
+cowplot::plot_grid(QQ_plot,Histogram_1)
+```
+
+```{r boxcox, fig.height=2,fig.width=3}
+# Courtesy Alex Stringer.
+library(MASS)
+crab_boxcox <- boxcox(size ~ 1,data=crab_tbl)
+crab_boxcox$x[which(crab_boxcox$y == max(crab_boxcox$y))]
+```
+
+```{r transform,fig.height=2,fig.width=4,echo=FALSE}
+crab_tbl_transform <- crab_tbl %>%
+  mutate(square = size^2)
+QQ_plot_2 <- crab_tbl_transform %>%
+              mutate_at("square",funs( (. - mean(.)) / sd(.))) %>%
+              arrange(square) %>%
+              mutate(q = qnorm(1:n() / (n() + 1))) %>%
+              ggplot(aes(x = q,y = square)) +
+              theme_classic() +
+              geom_point() +
+              geom_abline(slope = 1,intercept = 0) +
+              labs(title = "Normal QQ-plot after transformation",
+                   x = "Theoretical Quantiles",
+                   y = "Sample Quantiles")
+Histogram_2 <- crab_tbl_transform %>%
+                  ggplot(aes(x = square)) +
+                  theme_classic() +
+                  geom_histogram(aes(y = ..density..),colour="black",fill="#E89A3D",bins = 15) +
+                  geom_density(colour = "#A200E4") +
+                  labs(title = "Histogram for sizes after transformation",
+                       x = "Square",
+                       y = "Density")
+
+cowplot::plot_grid(QQ_plot_2,Histogram_2)
+
+```
+
+### d. Models and anova
+```{r crab-anova,echo=FALSE}
+# Define a linear model
+crab_aov1 <- aov(square ~ shell,data=crab_tbl_transform)
+summary(crab_aov1)
+# Fit the null model
+crab_aov2 <- aov(square ~ 1,data=crab_tbl_transform)
+summary(crab_aov2)
+# Compare them
+anova(crab_aov2,crab_aov1)
+```
+
